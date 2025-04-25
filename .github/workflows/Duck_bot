@@ -1,0 +1,73 @@
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes
+import aiohttp
+
+TOKEN = "8165993424:AAEZtBnopVdzNY1GgnXeE5enullhXBkm7Dk"
+
+# Get a random duck image URL
+async def get_duck_url(format: str = ""):
+    async with aiohttp.ClientSession() as session:
+        url = f"https://random-d.uk/api/random{f'?format={format}' if format else ''}"
+        async with session.get(url) as resp:
+            data = await resp.json()
+            return data["url"]
+
+# /start command with button menu
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("🖼️ Random", callback_data="one")],
+        [InlineKeyboardButton("📚 Multiple", callback_data="multi")],
+        [InlineKeyboardButton("🧩 By Format", callback_data="format")]
+    ]
+    await update.message.reply_text("Choose an option:", reply_markup=InlineKeyboardMarkup(keyboard))
+
+# Handle button presses
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "one":
+        url = await get_duck_url()
+        await query.message.reply_photo(url)
+
+    elif query.data == "multi":
+        context.user_data["mode"] = "multi"
+        await query.message.reply_text("How many ducks?")
+
+    elif query.data == "format":
+        context.user_data["mode"] = "format"
+        await query.message.reply_text("Enter format (jpg, gif, etc):")
+
+# Handle user replies for multiple/format modes
+async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    mode = context.user_data.get("mode")
+
+    if mode == "multi":
+        try:
+            count = int(update.message.text)
+            if 1 <= count <= 10:
+                for _ in range(count):
+                    url = await get_duck_url()
+                    await update.message.reply_photo(url)
+            else:
+                await update.message.reply_text("Please enter a number between 1 and 10.")
+        except:
+            await update.message.reply_text("Invalid number.")
+        context.user_data["mode"] = None
+
+    elif mode == "format":
+        fmt = update.message.text.strip().lower()
+        url = await get_duck_url(format=fmt)
+        if url.endswith(fmt):
+            await update.message.reply_photo(url)
+        else:
+            await update.message.reply_text(f"No duck found with .{fmt} format.")
+        context.user_data["mode"] = None
+
+# Launch the bot
+async def main():
+    app = ApplicationBuilder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(button_handler))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
+    await app.run_polling()
